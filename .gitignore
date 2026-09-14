@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+data/enroll/
+data/db/
+data/debug_aligned/
+*.onnx
+.DS_Store
+Thumbs.db
