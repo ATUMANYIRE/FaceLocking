@@ -92,6 +92,33 @@ face-recognition-5pt/
     └── servo_control.py   # ESP8266 serial servo controller
 ```
 
+## Setup — Files You Need to Download
+
+Some files are **not** committed to this repo (too large for GitHub, or generated on your machine). You must set these up before running anything:
+
+### 1. ArcFace ONNX model (REQUIRED — not in the repo)
+
+`models/embedder_arcface.onnx` (~166 MB) exceeds GitHub's 100 MB per-file limit, so it is **not included**. The code expects it at:
+
+```
+models/embedder_arcface.onnx
+```
+
+Download it (or export it from PyTorch/InsightFace) and place it there. It must accept a 3×112×112 RGB input and output a 512-D embedding vector. Good sources:
+
+- **InsightFace Model Zoo** — https://github.com/deepinsight/insightface/tree/master/recognition/arcface_torch (export the MXNet/PyTorch backbone to ONNX)
+- Existing public ArcFace ONNX exports from sources such as `face.evoLVe.PyTorch` or `InsightFace` repos
+
+Verify it works by running `python -m src.embed` — you should see `[embed] model loaded` and input/output shapes `[1,3,112,112]` → `[1,512]`.
+
+### 2. Haar cascade (included)
+
+`models/haarcascade_frontalface_default.xml` **is** committed (it's small), so nothing to do.
+
+### 3. Enrollment database (generated)
+
+`data/db/face_db.npz` + `data/db/face_db.json` and the `data/enroll/*.jpg` crops are created by you when you run `python -m src.enroll`. They are git-ignored.
+
 ## Requirements
 
 - Python 3.11+
@@ -177,4 +204,4 @@ python -m src.evaluate
 
 ## License
 
-Personal / Academic project.
+Group / Academic project.
