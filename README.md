@@ -161,6 +161,9 @@ python -m src.recognize
 # Recognition + servo tracking
 python -m src.recognize_track
 
+# Face locking + position + expressions + blinks (no servo)
+python -m src.face_lock --name ATUMANYIRE
+
 # Evaluate threshold
 python -m src.evaluate
 ```
@@ -184,6 +187,30 @@ python -m src.evaluate
 | `r` | Reload database from disk |
 | `+` / `-` | Loosen / tighten recognition threshold |
 | `l` | Release servo lock (tracking mode only) |
+
+## Controls (face_lock.py)
+
+```bash
+python -m src.face_lock --name ATUMANYIRE             # built-in webcam
+python -m src.face_lock --name ATUMANYIRE --camera 1  # external HD camera (1280x720 by default)
+```
+
+Labels every face in the frame (enrolled name or **Unknown**) and locks onto the target person (no servo). While locked it shows:
+- **Position** of the nose tip relative to the frame centre: LEFT / RIGHT / UP / DOWN / CENTER (as seen on screen), plus dx, dy and distance in pixels. Side changes are printed to the console.
+- **Expression**: neutral, smiling, sad, frowning, surprised, grimacing.
+- **Blinks** with a running count.
+- An **orange** warning while the locked face is briefly missing and a **red** warning when the target is not in the frame.
+
+Hold a neutral face with eyes open for ~1 s right after locking while expression/blink baselines calibrate.
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `l` | Release lock |
+| `c` | Recalibrate neutral expression and reset blink count |
+| `d` | Toggle expression debug values (for tuning thresholds in `src/expression.py`) |
+| `r` | Reload database from disk |
+| `+` / `-` | Loosen / tighten recognition threshold |
 
 ## Controls (enroll.py)
 

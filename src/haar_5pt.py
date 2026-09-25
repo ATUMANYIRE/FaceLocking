@@ -22,6 +22,7 @@ class FaceKpsBox:
     y2: int
     score: float
     kps: np.ndarray  # (5,2) float32
+    mesh: Optional[np.ndarray] = None  # (N,2) float32 full FaceMesh landmarks in pixels (unsmoothed)
 
 
 def _estimate_norm_5pt(kps_5x2: np.ndarray, out_size: Tuple[int, int] = (112, 112)) -> np.ndarray:
@@ -130,6 +131,7 @@ class Haar5ptDetector:
         min_size: Tuple[int, int] = (60, 60),
         smooth_alpha: float = 0.80,
         debug: bool = True,
+        max_mesh_faces: int = 1,
     ):
         self.debug = bool(debug)
         self.min_size = tuple(map(int, min_size))
@@ -141,7 +143,7 @@ class Haar5ptDetector:
 
         self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
-            max_num_faces=1,
+            max_num_faces=int(max_mesh_faces),
             refine_landmarks=True,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
@@ -165,26 +167,40 @@ class Haar5ptDetector:
             return np.zeros((0, 4), dtype=np.int32)
         return faces.astype(np.int32)
 
-    def _facemesh_5pt(self, frame_bgr: np.ndarray) -> Optional[np.ndarray]:
+    def _facemesh_all(self, frame_bgr: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """(kps 5x2, full mesh Nx2) in pixels for every face FaceMesh finds (up to max_mesh_faces)."""
         H, W = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         res = self.mp_face_mesh.process(rgb)
         if not res.multi_face_landmarks:
-            return None
+            return []
 
-        lm = res.multi_face_landmarks[0].landmark
         idxs = [self.IDX_LEFT_EYE, self.IDX_RIGHT_EYE, self.IDX_NOSE_TIP, self.IDX_MOUTH_LEFT, self.IDX_MOUTH_RIGHT]
-        pts = []
-        for i in idxs:
-            p = lm[i]
-            pts.append([p.x * W, p.y * H])
-        kps = np.array(pts, dtype=np.float32)
+        out = []
+        for face in res.multi_face_landmarks:
+            mesh = np.array([[p.x * W, p.y * H] for p in face.landmark], dtype=np.float32)
+            kps = mesh[idxs].copy()
+            if kps[0, 0] > kps[1, 0]:
+                kps[[0, 1]] = kps[[1, 0]]
+            if kps[3, 0] > kps[4, 0]:
+                kps[[3, 4]] = kps[[4, 3]]
+            out.append((kps, mesh))
+        return out
 
-        if kps[0, 0] > kps[1, 0]:
-            kps[[0, 1]] = kps[[1, 0]]
-        if kps[3, 0] > kps[4, 0]:
-            kps[[3, 4]] = kps[[4, 3]]
-        return kps
+    def _facemesh_5pt(self, frame_bgr: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        faces = self._facemesh_all(frame_bgr)
+        return faces[0] if faces else (None, None)
+
+    @staticmethod
+    def _inside_frac(kps: np.ndarray, x: int, y: int, w: int, h: int, margin: float = 0.35) -> float:
+        """Fraction of keypoints inside the Haar box padded by `margin` on each side."""
+        x1m, y1m = x - margin * w, y - margin * h
+        x2m, y2m = x + (1.0 + margin) * w, y + (1.0 + margin) * h
+        inside = (
+            (kps[:, 0] >= x1m) & (kps[:, 0] <= x2m) &
+            (kps[:, 1] >= y1m) & (kps[:, 1] <= y2m)
+        )
+        return float(inside.mean())
 
     def detect(self, frame_bgr: np.ndarray, max_faces: int = 1) -> List[FaceKpsBox]:
         H, W = frame_bgr.shape[:2]
@@ -197,20 +213,13 @@ class Haar5ptDetector:
         i = int(np.argmax(areas))
         x, y, w, h = faces[i].tolist()
 
-        kps = self._facemesh_5pt(frame_bgr)
+        kps, mesh = self._facemesh_5pt(frame_bgr)
         if kps is None:
             if self.debug:
                 print("[haar_5pt] Haar face found but FaceMesh returned none -> reject")
             return []
 
-        margin = 0.35
-        x1m, y1m = x - margin * w, y - margin * h
-        x2m, y2m = x + (1.0 + margin) * w, y + (1.0 + margin) * h
-        inside = (
-            (kps[:, 0] >= x1m) & (kps[:, 0] <= x2m) &
-            (kps[:, 1] >= y1m) & (kps[:, 1] <= y2m)
-        )
-        if inside.mean() < 0.60:
+        if self._inside_frac(kps, x, y, w, h) < 0.60:
             if self.debug:
                 print("[haar_5pt] FaceMesh points not consistent with Haar box -> reject")
             return []
@@ -234,6 +243,41 @@ class Haar5ptDetector:
             FaceKpsBox(
                 x1=int(round(x1)), y1=int(round(y1)),
                 x2=int(round(x2)), y2=int(round(y2)),
-                score=1.0, kps=kps_s.astype(np.float32),
+                score=1.0, kps=kps_s.astype(np.float32), mesh=mesh,
             )
         ][:max_faces]
+
+    def detect_all(self, frame_bgr: np.ndarray, max_faces: int = 5) -> List[FaceKpsBox]:
+        """
+        Every FaceMesh face that is confirmed by its own Haar box (same checks as
+        detect()). Needs max_mesh_faces > 1 to see more than one face. Results are
+        NOT smoothed, since there is no per-face identity to smooth across frames.
+        """
+        H, W = frame_bgr.shape[:2]
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        haar = self._haar_faces(gray).tolist()
+        if not haar:
+            return []
+
+        used = set()
+        out: List[FaceKpsBox] = []
+        for kps, mesh in self._facemesh_all(frame_bgr):
+            best_j, best_frac = -1, 0.60
+            for j, (x, y, w, h) in enumerate(haar):
+                if j in used:
+                    continue
+                frac = self._inside_frac(kps, x, y, w, h)
+                if frac >= best_frac and _kps_span_ok(kps, min_eye_dist=max(10.0, 0.18 * w)):
+                    best_j, best_frac = j, frac
+            if best_j < 0:
+                if self.debug:
+                    print("[haar_5pt] FaceMesh face without a consistent Haar box -> reject")
+                continue
+            used.add(best_j)
+            x1, y1, x2, y2 = _clip_box_xyxy(_bbox_from_5pt(kps), W, H).tolist()
+            out.append(FaceKpsBox(
+                x1=int(round(x1)), y1=int(round(y1)),
+                x2=int(round(x2)), y2=int(round(y2)),
+                score=1.0, kps=kps.astype(np.float32), mesh=mesh,
+            ))
+        return out[:max_faces]
