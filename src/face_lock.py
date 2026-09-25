@@ -310,9 +310,9 @@ def main():
                 if missed_frames > LOCK_LOSS_FRAMES:
                     release("face lost")
                 else:
-                    banner(vis, f"WARNING: {locked_name} MISSING ({missed_frames}/{LOCK_LOSS_FRAMES})", ORANGE)
+                    banner(vis, f"WARNING: {locked_name} NOT FOUND ({missed_frames}/{LOCK_LOSS_FRAMES})", ORANGE)
             if locked_name is None:
-                msg = f"WARNING: {target_text} NOT IN FRAME"
+                msg = f"WARNING: {target_text} NOT FOUND"
                 if candidate_n:
                     msg = f"Recognizing {candidate_name}... {candidate_n}/{LOCK_CONFIRM_FRAMES}"
                 banner(vis, msg, ORANGE if candidate_n else RED)

@@ -204,6 +204,8 @@ Labels every face in the frame (enrolled name or **Unknown**) and locks onto the
 
 Each session appends JSON Lines events to `data/action_history.jsonl`. Every entry includes `timestamp`, `action_type`, `description`, and the locked `identity` when available. Movement, expression changes, blinks, and lock state changes are recorded as they occur.
 
+Faces that are not enrolled are boxed and labelled `Unknown`; an enrolled person other than `--name` is labelled with their own name. Neither can acquire or steal the selected identity lock. When the selected identity is absent, the banner reads `WARNING: <name> NOT FOUND`.
+
 Hold a neutral face with eyes open for ~1 s right after locking while expression/blink baselines calibrate.
 
 | Key | Action |
