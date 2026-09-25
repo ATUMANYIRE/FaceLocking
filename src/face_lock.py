@@ -36,8 +36,11 @@ Keys:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
@@ -56,6 +59,28 @@ LOCK_MATCH_RADIUS = 150    # px the nose may jump between frames and still count
 IMPOSTOR_DIST = 0.60       # locked face this far from the template = clearly a different person
 CENTER_ZONE = 0.10         # |offset| below this fraction of width/height counts as CENTER
 NOSE_EMA = 0.5
+DEFAULT_HISTORY_PATH = Path("data/action_history.jsonl")
+
+
+class ActionHistory:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+
+    def record(self, action_type: str, description: str, identity: Optional[str] = None) -> None:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "action_type": action_type,
+            "description": description,
+        }
+        if identity:
+            entry["identity"] = identity
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            print(f"[history] could not write {self.path}: {exc}")
+
 
 EXPR_COLORS = {
     "neutral": (200, 200, 200),
@@ -112,11 +137,13 @@ def main():
     ap.add_argument("--camera", type=int, default=0, help="camera index (external USB camera is usually 1)")
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
+    ap.add_argument("--history", type=Path, default=DEFAULT_HISTORY_PATH, help="JSONL action history path")
     args = ap.parse_args()
 
     det = Haar5ptDetector(debug=False, max_mesh_faces=MAX_FACES)
     embedder = ArcFaceEmbedderONNX(debug=False)
     matcher = Matcher(load_db(DB_PATH), DEFAULT_THRESHOLD)
+    history = ActionHistory(args.history)
     expr = ExpressionDetector()
     if args.name and args.name not in matcher.names:
         raise SystemExit(f"'{args.name}' is not enrolled. Enrolled: {matcher.names}")
@@ -140,11 +167,13 @@ def main():
         nonlocal locked_name, locked_nose, missed_frames, last_expr, last_side, switch_n
         if locked_name is not None:
             print(f"[lock] {time.strftime('%H:%M:%S')} released '{locked_name}' ({reason}) - blinks this lock: {expr.blinks}")
+            history.record("lock_released", f"{locked_name} lock released: {reason}", locked_name)
         locked_name, locked_nose, last_expr, last_side = None, None, None, None
         missed_frames = switch_n = 0
         expr.reset()
 
     print(f"Loaded {len(matcher.names)} identities: {matcher.names}  target: {target_text}")
+    print(f"Action history: {args.history}")
     print("q=quit, l=release lock, c=recalibrate, d=debug, r=reload db, +/- threshold")
 
     try:
@@ -185,6 +214,7 @@ def main():
                         expr.reset()
                         print(f"[lock] {time.strftime('%H:%M:%S')} {locked_name} DETECTED - locked on. "
                               f"Hold a neutral face to calibrate")
+                        history.record("lock_acquired", f"{locked_name} identity lock acquired", locked_name)
                 else:
                     candidate_name, candidate_n = None, 0
             else:
@@ -234,6 +264,7 @@ def main():
                 if side != last_side:
                     print(f"[pos] {time.strftime('%H:%M:%S')} {locked_name} is now {side} "
                           f"(dx={dx:+.0f}px, dy={dy:+.0f}px)")
+                    history.record("face_movement", f"{locked_name} moved {side} (dx={dx:+.0f}px, dy={dy:+.0f}px)", locked_name)
                     last_side = side
 
                 lines = [
@@ -249,9 +280,11 @@ def main():
                     else:
                         if er.label != last_expr:
                             print(f"[expr] {time.strftime('%H:%M:%S')} {locked_name}: {er.label}")
+                            history.record("expression", f"{locked_name} expression changed to {er.label}", locked_name)
                             last_expr = er.label
                         if er.just_blinked:
                             print(f"[blink] {time.strftime('%H:%M:%S')} {locked_name} blinked (total {er.blinks})")
+                            history.record("blink", f"{locked_name} blink detected (total {er.blinks})", locked_name)
                             blink_flash_until = now + 0.4
                         lines.append((f"Expression: {er.label.upper()}", EXPR_COLORS[er.label]))
                         blink_text = f"Blinks: {er.blinks}"

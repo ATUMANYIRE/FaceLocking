@@ -4,6 +4,7 @@ __pycache__/
 data/enroll/
 data/db/
 data/debug_aligned/
+data/action_history.jsonl
 *.onnx
 .DS_Store
 Thumbs.db

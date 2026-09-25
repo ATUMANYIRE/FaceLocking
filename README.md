@@ -162,7 +162,7 @@ python -m src.recognize
 python -m src.recognize_track
 
 # Face locking + position + expressions + blinks (no servo)
-python -m src.face_lock --name ATUMANYIRE
+python -m src.face_lock --name ATUMANYIRE --camera 1
 
 # Evaluate threshold
 python -m src.evaluate
@@ -191,8 +191,9 @@ python -m src.evaluate
 ## Controls (face_lock.py)
 
 ```bash
-python -m src.face_lock --name ATUMANYIRE             # built-in webcam
-python -m src.face_lock --name ATUMANYIRE --camera 1  # external HD camera (1280x720 by default)
+python -m src.face_lock --name ATUMANYIRE --camera 0  # built-in webcam
+python -m src.face_lock --name ATUMANYIRE --camera 1  # external camera
+python -m src.face_lock --name ATUMANYIRE --camera 1 --history data/action_history.jsonl
 ```
 
 Labels every face in the frame (enrolled name or **Unknown**) and locks onto the target person (no servo). While locked it shows:
@@ -200,6 +201,8 @@ Labels every face in the frame (enrolled name or **Unknown**) and locks onto the
 - **Expression**: neutral, smiling, sad, frowning, surprised, grimacing.
 - **Blinks** with a running count.
 - An **orange** warning while the locked face is briefly missing and a **red** warning when the target is not in the frame.
+
+Each session appends JSON Lines events to `data/action_history.jsonl`. Every entry includes `timestamp`, `action_type`, `description`, and the locked `identity` when available. Movement, expression changes, blinks, and lock state changes are recorded as they occur.
 
 Hold a neutral face with eyes open for ~1 s right after locking while expression/blink baselines calibrate.
 
