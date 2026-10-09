@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -59,6 +60,9 @@ LOCK_MATCH_RADIUS = 150    # px the nose may jump between frames and still count
 IMPOSTOR_DIST = 0.60       # locked face this far from the template = clearly a different person
 CENTER_ZONE = 0.10         # |offset| below this fraction of width/height counts as CENTER
 NOSE_EMA = 0.5
+NEEDLE_DIAL_FRAC = 0.16    # tacho dial radius as a fraction of the shorter frame side
+NEEDLE_DIAL_TICKS = 12     # tick marks around the dial
+NEEDLE_HALF_WIDTH = 4      # needle half-width at the hub (px)
 DEFAULT_HISTORY_PATH = Path("data/action_history.jsonl")
 
 
@@ -129,6 +133,46 @@ def banner(img: np.ndarray, text: str, color) -> None:
     cv2.rectangle(img, (0, 0), (W - 1, H - 1), color, 10)
     cv2.rectangle(img, (0, 40), (W, 90), color, -1)
     cv2.putText(img, text, (20, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+
+def draw_tacho_needle(img: np.ndarray, pivot: Tuple[int, int], tip: Tuple[int, int],
+                      color=(0, 255, 255)) -> Tuple[float, float]:
+    """Tacho dial centred on pivot with a tapered needle whose tip tracks the nose.
+
+    Returns (bearing_deg, length_px) where bearing is 0 when the tip is straight
+    up and increases clockwise. The dial stays inside the full, uncropped frame.
+    """
+    cx, cy = pivot
+    nx, ny = tip
+    dx, dy = nx - cx, ny - cy
+    length = math.hypot(dx, dy)
+
+    H, W = img.shape[:2]
+    r = int(min(W, H) * NEEDLE_DIAL_FRAC)
+    cv2.ellipse(img, (cx, cy), (r, r), 0, 0, 360, color, 1, cv2.LINE_AA)
+    for k in range(NEEDLE_DIAL_TICKS):
+        a = (2.0 * math.pi * k) / NEEDLE_DIAL_TICKS
+        ca, sa = math.cos(a), math.sin(a)
+        cv2.line(img, (int(cx + ca * r * 0.82), int(cy + sa * r * 0.82)),
+                 (int(cx + ca * r), int(cy + sa * r)), color, 1, cv2.LINE_AA)
+
+    if length >= 3.0:
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux
+        poly = np.array([
+            [int(cx + px * NEEDLE_HALF_WIDTH), int(cy + py * NEEDLE_HALF_WIDTH)],
+            [int(cx - px * NEEDLE_HALF_WIDTH), int(cy - py * NEEDLE_HALF_WIDTH)],
+            [int(nx), int(ny)],
+        ], dtype=np.int32)
+        cv2.fillConvexPoly(img, poly, color, cv2.LINE_AA)
+
+    cv2.circle(img, (cx, cy), 6, color, -1, cv2.LINE_AA)
+    cv2.circle(img, (int(nx), int(ny)), 5, color, -1, cv2.LINE_AA)
+
+    bearing = (math.degrees(math.atan2(dx, -dy)) + 360.0) % 360.0
+    cv2.putText(img, f"{bearing:.0f} deg  {length:.0f}px", (cx + r + 8, cy + 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+    return bearing, length
 
 
 def main():
@@ -256,8 +300,7 @@ def main():
                 cv2.rectangle(vis, (f.x1, f.y1), (f.x2, f.y2), MAGENTA, 3)
                 cv2.putText(vis, f"{locked_name} (locked)  dist={m.distance:.2f}", (f.x1, max(0, f.y1 - 10)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, MAGENTA, 2)
-                cv2.line(vis, (cx, cy), (nx, ny), (0, 255, 255), 2)
-                cv2.circle(vis, (nx, ny), 5, (0, 255, 255), -1)
+                draw_tacho_needle(vis, (cx, cy), (nx, ny))
 
                 horiz, vert, dx, dy, dist = position_of(locked_nose, W, H)
                 side = horiz if vert == "CENTER" else (vert if horiz == "CENTER" else f"{vert}-{horiz}")

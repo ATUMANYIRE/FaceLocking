@@ -8,4 +8,4 @@ data/action_history.jsonl
 *.onnx
 .DS_Store
 Thumbs.db
-mqtt_tracking/esp8266_stepper_mqtt/secrets.h
+**/secrets.h

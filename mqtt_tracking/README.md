@@ -20,6 +20,33 @@ camera → recognize + lock (PC) ──publish──▶ Mosquitto broker ──�
 
 Don't power the motor from the 3.3V pin.
 
+## Firmware sketches
+
+Each `.ino` must live in its own sketch folder — Arduino concatenates every `.ino` in a folder into one sketch, so two `.ino` files side by side cause `redefinition of ...` errors.
+
+| Folder | Sketch | Drives |
+|--------|--------|--------|
+| `esp8266_stepper_mqtt/` | `esp8266_stepper_mqtt.ino` | pan only (`face_tracking`) |
+| `esp8266_stepper_mqtt_vertical/` | `esp8266_stepper_mqtt_vertical.ino` | tilt only (`face_tracking/tilt`) |
+| `esp8266_stepper_mqtt_dual/` | `esp8266_stepper_mqtt_dual.ino` | pan + tilt |
+
+For **vertical only** (current setup), open `esp8266_stepper_mqtt_vertical/esp8266_stepper_mqtt_vertical.ino`: one ULN2003 on D1/D2/D5/D6, topics under `face_tracking/tilt/...`, paired with `python -m mqtt_tracking.face_track_mqtt_vertical`.
+
+## Pan + tilt (two motors, one ESP8266)
+
+The dual sketch drives both axes. Pan keeps the original pinout and topics; tilt is a second ULN2003/28BYJ-48:
+
+| TILT ULN2003 | ESP8266 (NodeMCU / D1 mini) |
+|--------------|-----------------------------|
+| IN1          | D0 (GPIO16)  |
+| IN2          | D3 (GPIO0)   |
+| IN3          | D4 (GPIO2)   |
+| IN4          | D7 (GPIO13)  |
+| +  (5–12V)   | 5V (VIN / VU, or an external 5V supply) |
+| −            | GND (shared with the ESP8266) |
+
+D3/D4 are boot-strapping pins — if the board will not boot or flash with the tilt driver connected, move those two inputs to non-strapping spare pins and update `TILT_PINS` in the sketch. The tilt axis uses the `face_tracking/tilt/...` topic namespace (see below).
+
 ## Topics
 
 | Topic | Direction | Payload |
@@ -45,7 +72,7 @@ or add the two lines from `mosquitto.conf` to `C:\Program Files\mosquitto\mosqui
 ## 2. ESP8266
 
 1. Arduino IDE → Library Manager → install **PubSubClient** (Nick O'Leary).
-2. Copy `esp8266_stepper_mqtt/secrets.example.h` to `secrets.h` (git-ignored) and set `WIFI_SSID`, `WIFI_PASSWORD`, and `MQTT_HOST` (the PC's LAN IP). The PC and the ESP8266 must be on the same network.
+2. Copy `secrets.example.h` to `secrets.h` (git-ignored) inside the sketch's own folder and set `WIFI_SSID`, `WIFI_PASSWORD`, and `MQTT_HOST` (the PC's LAN IP). Each sketch folder needs its own `secrets.h`. The PC and the ESP8266 must be on the same network.
 3. Board: *NodeMCU 1.0 (ESP-12E Module)* (or your board), then upload.
 4. Serial Monitor at 115200 should show `[wifi] connected` and `[mqtt] connecting ... ok`. You can also type an angle such as `45` there to test the motor without the PC.
 
@@ -58,6 +85,8 @@ pip install paho-mqtt
 python -m mqtt_tracking.mqtt_publisher                 # no camera: sends 90 → 60 → 120 → 90
 python -m mqtt_tracking.face_track_mqtt                # broker on this PC
 python -m mqtt_tracking.face_track_mqtt --invert       # if the motor turns away from the face
+python -m mqtt_tracking.face_track_mqtt_vertical       # tilt-only (needs the dual firmware)
+python -m mqtt_tracking.face_track_mqtt_vertical --invert   # if the tilt turns the wrong way
 python -m mqtt_tracking.face_track_mqtt --mode onboard # camera mounted ON the motor
 python -m mqtt_tracking.face_track_mqtt --width 1920 --height 1080   # camera resolution (default 1280x720)
 ```
